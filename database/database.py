@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date
+import json
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,9 @@ def init_db() -> None:
                 alert_days INTEGER NOT NULL DEFAULT 30,
                 file_link TEXT,
                 telegram_chat_id INTEGER,
+                manager_group_chat_id INTEGER,
+                alert_target TEXT NOT NULL DEFAULT 'direct',
+                extra_chat_ids TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (tenant_id) REFERENCES Tenants(id) ON DELETE CASCADE,
@@ -77,6 +81,9 @@ def init_db() -> None:
         _ensure_column(conn, "Contracts", "alert_days", "alert_days INTEGER NOT NULL DEFAULT 30")
         _ensure_column(conn, "Contracts", "file_link", "file_link TEXT")
         _ensure_column(conn, "Contracts", "telegram_chat_id", "telegram_chat_id INTEGER")
+        _ensure_column(conn, "Contracts", "manager_group_chat_id", "manager_group_chat_id INTEGER")
+        _ensure_column(conn, "Contracts", "alert_target", "alert_target TEXT NOT NULL DEFAULT 'direct'")
+        _ensure_column(conn, "Contracts", "extra_chat_ids", "extra_chat_ids TEXT")
 
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_email ON Users (tenant_id, email)")
 
@@ -185,7 +192,15 @@ def insert_contract(
     alert_days: int = 30,
     file_link: str | None = None,
     telegram_chat_id: int | None = None,
+    manager_group_chat_id: int | None = None,
+    alert_target: str = "direct",
+    extra_chat_ids: list[int] | None = None,
 ) -> int:
+    if telegram_chat_id is None:
+        raise ValueError("telegram_chat_id is required for contract notifications")
+
+    normalized_target = alert_target if alert_target in {"direct", "managers", "both"} else "direct"
+    serialized_extra = json.dumps(extra_chat_ids or [])
     with get_connection() as conn:
         cursor = conn.execute(
             """
@@ -198,9 +213,12 @@ def insert_contract(
                 alert_days,
                 file_link,
                 telegram_chat_id,
+                manager_group_chat_id,
+                alert_target,
+                extra_chat_ids,
                 status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 tenant_id,
@@ -210,8 +228,120 @@ def insert_contract(
                 end_date.isoformat(),
                 alert_days,
                 file_link,
-                telegram_chat_id,
+                int(telegram_chat_id),
+                manager_group_chat_id,
+                normalized_target,
+                serialized_extra,
                 status,
             ),
         )
         return int(cursor.lastrowid)
+
+
+def get_contracts_needing_alert_today() -> list[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT
+                                c.id,
+                                c.tenant_id,
+                                t.name AS tenant_name,
+                                c.title,
+                                c.end_date,
+                                c.alert_days,
+                                c.telegram_chat_id,
+                                CAST(julianday(c.end_date) - julianday('now') AS INTEGER) AS days_remaining
+                        FROM Contracts c
+                        JOIN Tenants t ON t.id = c.tenant_id
+                        WHERE c.status = 'active'
+                            AND c.telegram_chat_id IS NOT NULL
+                            AND CAST(julianday(c.end_date) - julianday('now') AS INTEGER) = c.alert_days
+                        ORDER BY c.end_date ASC
+            """
+        ).fetchall()
+
+
+def is_chat_authorized_for_tenant(chat_id: int, tenant_id: int) -> bool:
+    with get_connection() as conn:
+        contract_match = conn.execute(
+            """
+            SELECT 1
+            FROM Contracts
+            WHERE tenant_id = ? AND telegram_chat_id = ?
+            LIMIT 1
+            """,
+            (tenant_id, chat_id),
+        ).fetchone()
+        if contract_match:
+            return True
+
+        user_match = conn.execute(
+            """
+            SELECT 1
+            FROM Users
+            WHERE tenant_id = ? AND telegram_chat_id = ?
+            LIMIT 1
+            """,
+            (tenant_id, chat_id),
+        ).fetchone()
+        return bool(user_match)
+
+
+def get_contracts_due_for_alerts() -> list[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT
+                c.id,
+                c.tenant_id,
+                c.title,
+                c.end_date,
+                c.alert_days,
+                c.telegram_chat_id,
+                c.manager_group_chat_id,
+                c.alert_target,
+                c.extra_chat_ids,
+                t.name AS tenant_name,
+                CAST(julianday(c.end_date) - julianday('now') AS INTEGER) AS days_remaining
+            FROM Contracts c
+            JOIN Tenants t ON t.id = c.tenant_id
+            WHERE c.status = 'active'
+              AND CAST(julianday(c.end_date) - julianday('now') AS INTEGER) = c.alert_days
+            ORDER BY c.end_date ASC
+            """
+        ).fetchall()
+
+
+def parse_chat_ids(contract_row: sqlite3.Row) -> list[int]:
+    chat_ids: list[int] = []
+    target = contract_row["alert_target"] or "direct"
+
+    direct_id = contract_row["telegram_chat_id"]
+    manager_group_id = contract_row["manager_group_chat_id"]
+
+    if target in {"direct", "both"} and direct_id is not None:
+        chat_ids.append(int(direct_id))
+    if target in {"managers", "both"} and manager_group_id is not None:
+        chat_ids.append(int(manager_group_id))
+
+    raw_extra = contract_row["extra_chat_ids"]
+    if raw_extra:
+        try:
+            parsed = json.loads(raw_extra)
+            if isinstance(parsed, list):
+                for item in parsed:
+                    if isinstance(item, int):
+                        chat_ids.append(item)
+                    elif isinstance(item, str) and item.strip().lstrip("-").isdigit():
+                        chat_ids.append(int(item.strip()))
+        except json.JSONDecodeError:
+            pass
+
+    # Preserve order and remove duplicates.
+    unique: list[int] = []
+    seen: set[int] = set()
+    for chat_id in chat_ids:
+        if chat_id not in seen:
+            seen.add(chat_id)
+            unique.append(chat_id)
+    return unique

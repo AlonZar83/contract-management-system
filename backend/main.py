@@ -54,7 +54,10 @@ class ContractCreateRequest(BaseModel):
     end_date: date
     alert_days: int = Field(default=30, ge=0, le=365)
     file_link: str | None = None
-    telegram_chat_id: int | None = None
+    telegram_chat_id: int
+    manager_group_chat_id: int | None = None
+    alert_target: str = Field(default="direct")
+    extra_chat_ids: list[int] = Field(default_factory=list)
 
 
 @app.get("/health")
@@ -80,6 +83,9 @@ def login(payload: LoginRequest) -> dict[str, object]:
 
 @app.post("/api/contracts")
 def create_contract(payload: ContractCreateRequest) -> dict[str, object]:
+    if payload.alert_target not in {"direct", "managers", "both"}:
+        raise HTTPException(status_code=400, detail="alert_target must be one of: direct, managers, both")
+
     contract_id = insert_contract(
         tenant_id=payload.tenant_id,
         user_id=payload.user_id,
@@ -89,6 +95,9 @@ def create_contract(payload: ContractCreateRequest) -> dict[str, object]:
         alert_days=payload.alert_days,
         file_link=payload.file_link,
         telegram_chat_id=payload.telegram_chat_id,
+        manager_group_chat_id=payload.manager_group_chat_id,
+        alert_target=payload.alert_target,
+        extra_chat_ids=payload.extra_chat_ids,
         status="active",
     )
     return {"success": True, "contract_id": contract_id}

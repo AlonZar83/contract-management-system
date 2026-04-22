@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import os
 from pathlib import Path
 import sys
 
@@ -23,12 +24,15 @@ def seed() -> None:
         password="123456",
     )
 
+    seed_chat_id = int(os.getenv("SEED_TELEGRAM_CHAT_ID", "123456789"))
+
     insert_contract(
         tenant_id=tenant_id,
         user_id=user_id,
         title="דירת הדגמה",
         end_date=date.today() + timedelta(days=3),
         alert_days=30,
+        telegram_chat_id=seed_chat_id,
         status="active",
     )
 

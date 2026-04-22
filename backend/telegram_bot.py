@@ -8,12 +8,24 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from pathlib import Path
+import sys
+
+from dotenv import load_dotenv
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, ChatMemberHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 logger = logging.getLogger(__name__)
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+if str(BASE_DIR) not in sys.path:
+    sys.path.append(str(BASE_DIR))
+
+load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR / "shared" / ".env")
+
+from database.database import get_expiring_contracts, init_db, is_chat_authorized_for_tenant
 
 
 class TelegramBotManager:
@@ -32,6 +44,7 @@ class TelegramBotManager:
             return
 
         self.application = Application.builder().token(self.bot_token).build()
+        init_db()
         self._setup_handlers()
 
     def _setup_handlers(self) -> None:
@@ -40,6 +53,84 @@ class TelegramBotManager:
             return
 
         self.application.add_handler(CommandHandler("start", self._start))
+        self.application.add_handler(CommandHandler("chatid", self._chat_id))
+        self.application.add_handler(ChatMemberHandler(self._bot_added_to_chat, ChatMemberHandler.MY_CHAT_MEMBER))
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_text))
+
+    async def _chat_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.effective_chat:
+            return
+        chat = update.effective_chat
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"Chat ID של הצ'אט הזה: {chat.id}\nסוג צ'אט: {chat.type}",
+        )
+
+    async def _bot_added_to_chat(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        chat = update.effective_chat
+        if chat is None:
+            return
+
+        new_status = update.my_chat_member.new_chat_member.status if update.my_chat_member else "unknown"
+        if new_status in {"member", "administrator"}:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=(
+                    "תודה שהוספתם אותי לקבוצה.\n"
+                    f"Chat ID של הקבוצה: {chat.id}\n"
+                    "אפשר להזין את הערך הזה בשדה קבוצת מנהלים בממשק ה-Web."
+                ),
+            )
+
+    async def _handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle plain text messages and map START text to start flow."""
+        if not update.message or not update.message.text:
+            return
+
+        text = update.message.text.strip().lower()
+        if text in {"start", "התחל", "התחלה"}:
+            await self._start(update, context)
+            return
+
+        if context.user_data.get("awaiting_tenant_id"):
+            raw_tenant = update.message.text.strip()
+            if not raw_tenant.isdigit():
+                await update.message.reply_text("קוד לקוח חייב להיות מספרי בלבד. נסה שוב (למשל: 101)")
+                return
+
+            tenant_id = int(raw_tenant)
+            chat_id = update.effective_chat.id if update.effective_chat else None
+            if chat_id is None:
+                await update.message.reply_text("לא ניתן לזהות chat_id. נסה שוב.")
+                return
+
+            if not is_chat_authorized_for_tenant(chat_id=chat_id, tenant_id=tenant_id):
+                await update.message.reply_text(
+                    "גישה נדחתה: ה-chat שלך לא משויך ללקוח הזה. "
+                    "יש להזין Telegram Chat ID מתאים דרך ממשק ה-Web."
+                )
+                return
+
+            context.user_data["tenant_id"] = tenant_id
+            context.user_data["awaiting_tenant_id"] = False
+
+            await update.message.reply_text(f"מעולה, קוד לקוח {tenant_id} נקלט. בודק חוזים לפקיעה...")
+            await self.send_tenant_contract_alerts(chat_id=chat_id, tenant_id=tenant_id)
+            return
+
+        if text in {"חוזים", "status", "contracts", "/contracts"}:
+            tenant_id = context.user_data.get("tenant_id")
+            chat_id = update.effective_chat.id if update.effective_chat else None
+            if not tenant_id or chat_id is None:
+                await update.message.reply_text("כדי לקבל מידע, שלח קודם /start והזן Tenant ID.")
+                return
+            if not is_chat_authorized_for_tenant(chat_id=chat_id, tenant_id=int(tenant_id)):
+                await update.message.reply_text("גישה נדחתה: chat_id אינו משויך ל-tenant המבוקש.")
+                return
+            await self.send_tenant_contract_alerts(chat_id=chat_id, tenant_id=int(tenant_id))
+            return
+
+        await update.message.reply_text("כדי להתחיל, שלח /start או START")
 
     async def _start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command.
@@ -51,10 +142,31 @@ class TelegramBotManager:
         user = update.effective_user
         welcome_msg = (
             f"👋 שלום {user.first_name}!\n\n"
-            "ברוכים הבאים לממערכת ניהול החוזים.\n"
+            "ברוכים הבאים למערכת ניהול החוזים.\n"
             "כדי להתחיל, אנא הזן את קוד הלקוח (Tenant ID) שלך:"
         )
-        await update.message.reply_text(welcome_msg)
+        context.user_data["awaiting_tenant_id"] = True
+        if update.message:
+            await update.message.reply_text(welcome_msg)
+
+    async def send_tenant_contract_alerts(self, chat_id: int, tenant_id: int) -> None:
+        """Scan expiring contracts for a specific tenant and push immediate alerts."""
+        expiring = get_expiring_contracts(days_ahead=30, tenant_id=tenant_id)
+        if not expiring:
+            await self.send_alert(chat_id, "אין כרגע חוזים שפגים ב-30 הימים הקרובים עבור הלקוח הזה.")
+            return
+
+        for contract in expiring:
+            tenant_name = contract["tenant_name"]
+            title = contract["title"]
+            days_remaining = contract["days_remaining"]
+            message = (
+                f"🔔 התראה מיידית\n"
+                f"לקוח: {tenant_name}\n"
+                f"חוזה: {title}\n"
+                f"פג תוקף בעוד: {days_remaining} ימים"
+            )
+            await self.send_alert(chat_id=chat_id, message=message)
 
     async def send_alert(self, chat_id: int, message: str) -> bool:
         """Send an alert message to a specific user.
@@ -118,3 +230,13 @@ async def send_contract_reminder(chat_id: int, contract_title: str, days_remaini
     bot_manager = get_bot_manager()
     message = f"⏰ תזכורת: החוזה '{contract_title}' מסתיים בעוד {days_remaining} ימים"
     return await bot_manager.send_alert(chat_id, message)
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    manager = get_bot_manager()
+    manager.start()
+
+
+if __name__ == "__main__":
+    main()
