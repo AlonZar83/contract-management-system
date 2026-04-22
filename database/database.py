@@ -238,6 +238,52 @@ def insert_contract(
         return int(cursor.lastrowid)
 
 
+def get_contracts_for_tenant(tenant_id: int, search: str | None = None) -> list[dict[str, Any]]:
+    sql = (
+        """
+        SELECT
+            id,
+            tenant_id,
+            title,
+            start_date,
+            end_date,
+            alert_days,
+            telegram_chat_id,
+            status,
+            created_at,
+            CASE
+                WHEN date(end_date) >= date('now') THEN 'active'
+                ELSE 'expired'
+            END AS computed_status
+        FROM Contracts
+        WHERE tenant_id = ?
+        """
+    )
+    params: list[object] = [tenant_id]
+
+    if search and search.strip():
+        sql += " AND title LIKE ?"
+        params.append(f"%{search.strip()}%")
+
+    sql += " ORDER BY date(end_date) ASC, id DESC"
+
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delete_contract_for_tenant(contract_id: int, tenant_id: int) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM Contracts
+            WHERE id = ? AND tenant_id = ?
+            """,
+            (contract_id, tenant_id),
+        )
+        return cursor.rowcount > 0
+
+
 def get_contracts_needing_alert_today() -> list[sqlite3.Row]:
     with get_connection() as conn:
         return conn.execute(

@@ -10,7 +10,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from database.database import authenticate_user, init_db, insert_contract
+from database.database import (
+    authenticate_user,
+    delete_contract_for_tenant,
+    get_contracts_for_tenant,
+    init_db,
+    insert_contract,
+)
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 SHARED_ENV_FILE = BASE_DIR / "shared" / ".env"
@@ -101,3 +107,17 @@ def create_contract(payload: ContractCreateRequest) -> dict[str, object]:
         status="active",
     )
     return {"success": True, "contract_id": contract_id}
+
+
+@app.get("/api/contracts")
+def list_contracts(tenant_id: int, search: str | None = None) -> dict[str, object]:
+    contracts = get_contracts_for_tenant(tenant_id=tenant_id, search=search)
+    return {"success": True, "contracts": contracts}
+
+
+@app.delete("/api/contracts/{contract_id}")
+def delete_contract(contract_id: int, tenant_id: int) -> dict[str, object]:
+    deleted = delete_contract_for_tenant(contract_id=contract_id, tenant_id=tenant_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Contract not found for this tenant")
+    return {"success": True}

@@ -20,6 +20,24 @@
       box-shadow: 0 12px 35px rgba(15, 23, 42, 0.14);
       padding: 18px;
     }
+    .nav {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .nav a {
+      text-decoration: none;
+      background: #e2e8f0;
+      color: #0f172a;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+    .nav a.active {
+      background: #0f766e;
+      color: #fff;
+    }
     h1 { margin: 0 0 8px; font-size: 1.4rem; color: #1e3a8a; }
     .subtitle { margin: 0 0 18px; color: #475569; }
     .grid {
@@ -63,6 +81,11 @@
 </head>
 <body>
   <div class="container">
+    <nav class="nav">
+      <a href="/frontend/contract.html" class="active">הוספת חוזה</a>
+      <a href="/frontend/dashboard.html">לוח הבקרה</a>
+    </nav>
+
     <h1>הזנת חוזה חדש</h1>
     <p class="subtitle">ניהול חוזים והתראות טלגרם דרך ממשק אפליקטיבי בלבד.</p>
 
@@ -90,6 +113,21 @@
       <div>
         <label for="telegramChatId">Telegram Chat ID</label>
         <input id="telegramChatId" type="number" placeholder="123456789" required />
+      </div>
+
+      <div>
+        <label for="managerGroupChatId">Chat ID של קבוצת מנהלים</label>
+        <input id="managerGroupChatId" type="number" placeholder="-1001234567890" />
+      </div>
+
+      <div>
+        <label for="alertTarget">יעד התראה</label>
+        <input id="alertTarget" list="alertTargets" value="direct" />
+        <datalist id="alertTargets">
+          <option value="direct"></option>
+          <option value="managers"></option>
+          <option value="both"></option>
+        </datalist>
       </div>
 
       <div class="full">
@@ -127,7 +165,12 @@
         end_date: document.getElementById('endDate').value,
         alert_days: Number(document.getElementById('alertDays').value),
         file_link: document.getElementById('fileLink').value.trim() || null,
-        telegram_chat_id: Number(document.getElementById('telegramChatId').value)
+        telegram_chat_id: Number(document.getElementById('telegramChatId').value),
+        manager_group_chat_id: document.getElementById('managerGroupChatId').value
+          ? Number(document.getElementById('managerGroupChatId').value)
+          : null,
+        alert_target: document.getElementById('alertTarget').value.trim() || 'direct',
+        extra_chat_ids: []
       };
 
       try {

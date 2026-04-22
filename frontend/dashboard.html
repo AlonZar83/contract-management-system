@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>לוח בקרה - Contract Management</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: linear-gradient(180deg, #e2e8f0, #f8fafc);
+      min-height: 100vh;
+      color: #0f172a;
+    }
+    .container {
+      width: min(96vw, 980px);
+      margin: 24px auto;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 12px 35px rgba(15, 23, 42, 0.14);
+      padding: 18px;
+    }
+    .nav {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .nav a {
+      text-decoration: none;
+      background: #e2e8f0;
+      color: #0f172a;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+    .nav a.active {
+      background: #1d4ed8;
+      color: #fff;
+    }
+    h1 { margin: 0 0 8px; font-size: 1.4rem; color: #1e3a8a; }
+    .subtitle { margin: 0 0 16px; color: #475569; }
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .toolbar input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 11px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 1rem;
+    }
+    .toolbar button {
+      border: 0;
+      border-radius: 10px;
+      padding: 11px 14px;
+      background: #1d4ed8;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 680px;
+      background: #fff;
+    }
+    th, td {
+      text-align: right;
+      padding: 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    th {
+      background: #f8fafc;
+      color: #334155;
+      font-size: 0.95rem;
+    }
+    .status {
+      font-weight: 700;
+      border-radius: 999px;
+      display: inline-block;
+      padding: 4px 10px;
+      font-size: 0.85rem;
+    }
+    .status.active {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .status.expired {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .delete-btn {
+      border: 0;
+      border-radius: 8px;
+      background: #b91c1c;
+      color: #fff;
+      padding: 7px 10px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .status-text {
+      margin-top: 10px;
+      min-height: 24px;
+      font-weight: 700;
+    }
+    .danger { color: #b91c1c; }
+    .success { color: #166534; }
+    @media (max-width: 640px) {
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+      .toolbar button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav class="nav">
+      <a href="/frontend/contract.html">הוספת חוזה</a>
+      <a href="/frontend/dashboard.html" class="active">לוח הבקרה</a>
+    </nav>
+
+    <h1>לוח בקרת חוזים</h1>
+    <p class="subtitle">צפייה, חיפוש ומחיקת חוזים של המשתמש המחובר.</p>
+
+    <div class="toolbar">
+      <input id="searchInput" placeholder="חיפוש לפי שם חוזה" />
+      <button id="refreshBtn" type="button">רענן</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>שם חוזה</th>
+            <th>תאריך סיום</th>
+            <th>סטטוס</th>
+            <th>פעולה</th>
+          </tr>
+        </thead>
+        <tbody id="contractsBody"></tbody>
+      </table>
+    </div>
+
+    <div id="statusText" class="status-text"></div>
+  </div>
+
+  <script>
+    const user = JSON.parse(localStorage.getItem('cms_user') || 'null');
+    if (!user) {
+      window.location.href = '/frontend/index.html';
+    }
+
+    const searchInput = document.getElementById('searchInput');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const contractsBody = document.getElementById('contractsBody');
+    const statusText = document.getElementById('statusText');
+
+    function setStatus(message, type = '') {
+      statusText.className = 'status-text';
+      if (type) statusText.classList.add(type);
+      statusText.textContent = message;
+    }
+
+    function renderContracts(contracts) {
+      contractsBody.innerHTML = '';
+      if (!contracts.length) {
+        contractsBody.innerHTML = '<tr><td colspan="4">לא נמצאו חוזים</td></tr>';
+        return;
+      }
+
+      for (const contract of contracts) {
+        const tr = document.createElement('tr');
+        const statusClass = contract.computed_status === 'active' ? 'active' : 'expired';
+        const statusTextValue = contract.computed_status === 'active' ? 'פעיל' : 'פג תוקף';
+
+        tr.innerHTML = `
+          <td>${contract.title}</td>
+          <td>${contract.end_date}</td>
+          <td><span class="status ${statusClass}">${statusTextValue}</span></td>
+          <td><button class="delete-btn" data-id="${contract.id}">מחק</button></td>
+        `;
+        contractsBody.appendChild(tr);
+      }
+    }
+
+    async function loadContracts() {
+      const search = searchInput.value.trim();
+      const params = new URLSearchParams({ tenant_id: String(user.tenant_id) });
+      if (search) params.set('search', search);
+
+      setStatus('טוען חוזים...');
+      try {
+        const response = await fetch(`/api/contracts?${params.toString()}`);
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          setStatus('טעינת החוזים נכשלה', 'danger');
+          return;
+        }
+
+        renderContracts(data.contracts || []);
+        setStatus(`נטענו ${data.contracts.length} חוזים`, 'success');
+      } catch (error) {
+        setStatus('שגיאת תקשורת בעת טעינת חוזים', 'danger');
+      }
+    }
+
+    async function deleteContract(contractId) {
+      const confirmed = window.confirm('האם למחוק את החוזה?');
+      if (!confirmed) return;
+
+      setStatus('מוחק חוזה...');
+      try {
+        const response = await fetch(`/api/contracts/${contractId}?tenant_id=${user.tenant_id}`, {
+          method: 'DELETE'
+        });
+        if (!response.ok) {
+          setStatus('מחיקת החוזה נכשלה', 'danger');
+          return;
+        }
+        setStatus('החוזה נמחק בהצלחה', 'success');
+        await loadContracts();
+      } catch (error) {
+        setStatus('שגיאת תקשורת בעת מחיקה', 'danger');
+      }
+    }
+
+    contractsBody.addEventListener('click', (event) => {
+      const btn = event.target.closest('.delete-btn');
+      if (!btn) return;
+      const id = Number(btn.dataset.id);
+      if (Number.isFinite(id)) {
+        deleteContract(id);
+      }
+    });
+
+    let searchTimer = null;
+    searchInput.addEventListener('input', () => {
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => loadContracts(), 250);
+    });
+
+    refreshBtn.addEventListener('click', loadContracts);
+    loadContracts();
+  </script>
+</body>
+</html>
