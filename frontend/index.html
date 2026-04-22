@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>כניסה - Contract Management</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: linear-gradient(135deg, #0f172a, #1e3a8a);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #0f172a;
+    }
+    .card {
+      width: min(92vw, 420px);
+      background: #ffffff;
+      border-radius: 18px;
+      padding: 28px;
+      box-shadow: 0 20px 60px rgba(2, 6, 23, 0.35);
+    }
+    h1 { margin: 0 0 8px; font-size: 1.5rem; color: #0b3a7e; }
+    p { margin: 0 0 20px; color: #475569; }
+    label { font-weight: 600; display: block; margin: 12px 0 6px; }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 1rem;
+    }
+    button {
+      margin-top: 16px;
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #fff;
+      background: #0b5ed7;
+      cursor: pointer;
+    }
+    button:hover { background: #094db2; }
+    .hint {
+      margin-top: 14px;
+      font-size: 0.9rem;
+      color: #64748b;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .error { margin-top: 12px; color: #b91c1c; font-weight: 600; min-height: 22px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>כניסה למערכת</h1>
+    <p>הזן אימייל וסיסמה כדי לעבור להזנת חוזים.</p>
+
+    <form id="loginForm">
+      <label for="email">אימייל</label>
+      <input id="email" type="email" required placeholder="name@example.com" />
+
+      <label for="password">סיסמה</label>
+      <input id="password" type="password" required placeholder="********" />
+
+      <button type="submit">התחברות</button>
+      <div id="error" class="error"></div>
+    </form>
+
+    <div class="hint">
+      משתמש בדיקה לפיתוח: test@contract.local / 123456
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const errorEl = document.getElementById('error');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      errorEl.textContent = '';
+
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          errorEl.textContent = 'פרטי ההתחברות אינם תקינים';
+          return;
+        }
+
+        localStorage.setItem('cms_user', JSON.stringify(payload.user));
+        window.location.href = '/frontend/contract.html';
+      } catch (error) {
+        errorEl.textContent = 'שגיאת תקשורת עם השרת';
+      }
+    });
+  </script>
+</body>
+</html>

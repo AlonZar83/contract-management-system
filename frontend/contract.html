@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>הזנת חוזה - Contract Management</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: linear-gradient(180deg, #e2e8f0, #f8fafc);
+      min-height: 100vh;
+      color: #0f172a;
+    }
+    .container {
+      width: min(96vw, 760px);
+      margin: 24px auto;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 12px 35px rgba(15, 23, 42, 0.14);
+      padding: 18px;
+    }
+    h1 { margin: 0 0 8px; font-size: 1.4rem; color: #1e3a8a; }
+    .subtitle { margin: 0 0 18px; color: #475569; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    @media (min-width: 700px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+      .full { grid-column: 1 / span 2; }
+    }
+    label { font-weight: 600; display: block; margin-bottom: 6px; }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 11px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 1rem;
+    }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 12px;
+      width: 100%;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #fff;
+      background: #0f766e;
+      cursor: pointer;
+    }
+    button:hover { background: #0e665f; }
+    .status {
+      margin-top: 12px;
+      font-weight: 700;
+      min-height: 24px;
+    }
+    .danger { color: #b91c1c; }
+    .success { color: #166534; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>הזנת חוזה חדש</h1>
+    <p class="subtitle">ניהול חוזים והתראות טלגרם דרך ממשק אפליקטיבי בלבד.</p>
+
+    <form id="contractForm" class="grid">
+      <div class="full">
+        <label for="title">שם חוזה</label>
+        <input id="title" required placeholder="לדוגמה: דירת הדגמה" />
+      </div>
+
+      <div>
+        <label for="startDate">תאריך התחלה</label>
+        <input id="startDate" type="date" />
+      </div>
+
+      <div>
+        <label for="endDate">תאריך תוקף סופי</label>
+        <input id="endDate" type="date" required />
+      </div>
+
+      <div>
+        <label for="alertDays">ימי התראה מראש</label>
+        <input id="alertDays" type="number" min="0" max="365" value="30" required />
+      </div>
+
+      <div>
+        <label for="telegramChatId">Telegram Chat ID</label>
+        <input id="telegramChatId" type="number" placeholder="123456789" required />
+      </div>
+
+      <div class="full">
+        <label for="fileLink">לינק לקובץ חוזה</label>
+        <input id="fileLink" type="url" placeholder="https://..." />
+      </div>
+
+      <div class="full">
+        <button type="submit">שמור חוזה</button>
+      </div>
+    </form>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <script>
+    const user = JSON.parse(localStorage.getItem('cms_user') || 'null');
+    if (!user) {
+      window.location.href = '/frontend/index.html';
+    }
+
+    const form = document.getElementById('contractForm');
+    const statusEl = document.getElementById('status');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      statusEl.textContent = '';
+      statusEl.className = 'status';
+
+      const payload = {
+        tenant_id: user.tenant_id,
+        user_id: user.id,
+        title: document.getElementById('title').value.trim(),
+        start_date: document.getElementById('startDate').value || null,
+        end_date: document.getElementById('endDate').value,
+        alert_days: Number(document.getElementById('alertDays').value),
+        file_link: document.getElementById('fileLink').value.trim() || null,
+        telegram_chat_id: Number(document.getElementById('telegramChatId').value)
+      };
+
+      try {
+        const response = await fetch('/api/contracts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          statusEl.classList.add('danger');
+          statusEl.textContent = 'שמירת החוזה נכשלה';
+          return;
+        }
+
+        statusEl.classList.add('success');
+        statusEl.textContent = `החוזה נשמר בהצלחה. מזהה חוזה: ${data.contract_id}`;
+        form.reset();
+      } catch (error) {
+        statusEl.classList.add('danger');
+        statusEl.textContent = 'שגיאת תקשורת עם השרת';
+      }
+    });
+  </script>
+</body>
+</html>
