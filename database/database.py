@@ -248,6 +248,7 @@ def get_contracts_for_tenant(tenant_id: int, search: str | None = None) -> list[
             start_date,
             end_date,
             alert_days,
+            file_link,
             telegram_chat_id,
             status,
             created_at,

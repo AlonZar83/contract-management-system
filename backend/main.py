@@ -3,9 +3,10 @@ from __future__ import annotations
 import os
 from datetime import date
 from pathlib import Path
+from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -45,6 +46,10 @@ app.add_middleware(
 FRONTEND_DIR = BASE_DIR / "frontend"
 if FRONTEND_DIR.exists():
     app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+
+UPLOADS_DIR = BASE_DIR / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 
 class LoginRequest(BaseModel):
@@ -88,22 +93,58 @@ def login(payload: LoginRequest) -> dict[str, object]:
 
 
 @app.post("/api/contracts")
-def create_contract(payload: ContractCreateRequest) -> dict[str, object]:
-    if payload.alert_target not in {"direct", "managers", "both"}:
+async def create_contract(
+    tenant_id: int = Form(...),
+    user_id: int | None = Form(None),
+    title: str = Form(...),
+    start_date: str | None = Form(None),
+    end_date: str = Form(...),
+    alert_days: int = Form(30),
+    telegram_chat_id: int = Form(...),
+    manager_group_chat_id: int | None = Form(None),
+    alert_target: str = Form("direct"),
+    contract_file: UploadFile | None = File(None),
+) -> dict[str, object]:
+    if alert_target not in {"direct", "managers", "both"}:
         raise HTTPException(status_code=400, detail="alert_target must be one of: direct, managers, both")
 
+    try:
+        parsed_end_date = date.fromisoformat(end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="end_date must be ISO format YYYY-MM-DD") from exc
+
+    parsed_start_date: date | None = None
+    if start_date:
+        try:
+            parsed_start_date = date.fromisoformat(start_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="start_date must be ISO format YYYY-MM-DD") from exc
+
+    file_link: str | None = None
+    if contract_file and contract_file.filename:
+        extension = Path(contract_file.filename).suffix.lower()
+        allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png"}
+        if extension not in allowed_extensions:
+            raise HTTPException(status_code=400, detail="Only PDF/JPG/JPEG/PNG files are allowed")
+
+        unique_filename = f"{uuid4().hex}{extension}"
+        destination = UPLOADS_DIR / unique_filename
+        content = await contract_file.read()
+        destination.write_bytes(content)
+        file_link = f"/uploads/{unique_filename}"
+
     contract_id = insert_contract(
-        tenant_id=payload.tenant_id,
-        user_id=payload.user_id,
-        title=payload.title,
-        start_date=payload.start_date,
-        end_date=payload.end_date,
-        alert_days=payload.alert_days,
-        file_link=payload.file_link,
-        telegram_chat_id=payload.telegram_chat_id,
-        manager_group_chat_id=payload.manager_group_chat_id,
-        alert_target=payload.alert_target,
-        extra_chat_ids=payload.extra_chat_ids,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        title=title,
+        start_date=parsed_start_date,
+        end_date=parsed_end_date,
+        alert_days=alert_days,
+        file_link=file_link,
+        telegram_chat_id=telegram_chat_id,
+        manager_group_chat_id=manager_group_chat_id,
+        alert_target=alert_target,
+        extra_chat_ids=[],
         status="active",
     )
     return {"success": True, "contract_id": contract_id}

@@ -131,8 +131,8 @@
       </div>
 
       <div class="full">
-        <label for="fileLink">לינק לקובץ חוזה</label>
-        <input id="fileLink" type="url" placeholder="https://..." />
+        <label for="contractFile">קובץ חוזה (PDF / JPG / PNG)</label>
+        <input id="contractFile" type="file" accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf" />
       </div>
 
       <div class="full">
@@ -152,32 +152,54 @@
     const form = document.getElementById('contractForm');
     const statusEl = document.getElementById('status');
 
+    function resolveTenantId() {
+      const tenantId = user?.tenant_id ?? user?.tenantId ?? null;
+      const parsed = Number(tenantId);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       statusEl.textContent = '';
       statusEl.className = 'status';
 
-      const payload = {
-        tenant_id: user.tenant_id,
-        user_id: user.id,
-        title: document.getElementById('title').value.trim(),
-        start_date: document.getElementById('startDate').value || null,
-        end_date: document.getElementById('endDate').value,
-        alert_days: Number(document.getElementById('alertDays').value),
-        file_link: document.getElementById('fileLink').value.trim() || null,
-        telegram_chat_id: Number(document.getElementById('telegramChatId').value),
-        manager_group_chat_id: document.getElementById('managerGroupChatId').value
-          ? Number(document.getElementById('managerGroupChatId').value)
-          : null,
-        alert_target: document.getElementById('alertTarget').value.trim() || 'direct',
-        extra_chat_ids: []
-      };
+      const tenantId = resolveTenantId();
+      if (!tenantId) {
+        statusEl.classList.add('danger');
+        statusEl.textContent = 'שגיאת משתמש: tenant_id חסר. התחבר מחדש.';
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('tenant_id', String(tenantId));
+      if (user?.id != null) {
+        formData.append('user_id', String(user.id));
+      }
+      formData.append('title', document.getElementById('title').value.trim());
+
+      const startDate = document.getElementById('startDate').value;
+      if (startDate) formData.append('start_date', startDate);
+
+      formData.append('end_date', document.getElementById('endDate').value);
+      formData.append('alert_days', String(Number(document.getElementById('alertDays').value)));
+      formData.append('telegram_chat_id', String(Number(document.getElementById('telegramChatId').value)));
+
+      const managerGroupRaw = document.getElementById('managerGroupChatId').value;
+      if (managerGroupRaw) {
+        formData.append('manager_group_chat_id', String(Number(managerGroupRaw)));
+      }
+
+      formData.append('alert_target', document.getElementById('alertTarget').value.trim() || 'direct');
+
+      const fileInput = document.getElementById('contractFile');
+      if (fileInput.files && fileInput.files[0]) {
+        formData.append('contract_file', fileInput.files[0]);
+      }
 
       try {
         const response = await fetch('/api/contracts', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: formData
         });
         const data = await response.json();
 

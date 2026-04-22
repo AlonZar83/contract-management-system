@@ -144,6 +144,7 @@
           <tr>
             <th>שם חוזה</th>
             <th>תאריך סיום</th>
+            <th>קובץ</th>
             <th>סטטוס</th>
             <th>פעולה</th>
           </tr>
@@ -166,6 +167,12 @@
     const contractsBody = document.getElementById('contractsBody');
     const statusText = document.getElementById('statusText');
 
+    function resolveTenantId() {
+      const tenantId = user?.tenant_id ?? user?.tenantId ?? null;
+      const parsed = Number(tenantId);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
     function setStatus(message, type = '') {
       statusText.className = 'status-text';
       if (type) statusText.classList.add(type);
@@ -175,7 +182,7 @@
     function renderContracts(contracts) {
       contractsBody.innerHTML = '';
       if (!contracts.length) {
-        contractsBody.innerHTML = '<tr><td colspan="4">לא נמצאו חוזים</td></tr>';
+        contractsBody.innerHTML = '<tr><td colspan="5">לא נמצאו חוזים</td></tr>';
         return;
       }
 
@@ -184,9 +191,14 @@
         const statusClass = contract.computed_status === 'active' ? 'active' : 'expired';
         const statusTextValue = contract.computed_status === 'active' ? 'פעיל' : 'פג תוקף';
 
+        const fileCell = contract.file_link
+          ? `<a href="${contract.file_link}" target="_blank" rel="noopener noreferrer">פתח קובץ</a>`
+          : 'ללא קובץ';
+
         tr.innerHTML = `
           <td>${contract.title}</td>
           <td>${contract.end_date}</td>
+          <td>${fileCell}</td>
           <td><span class="status ${statusClass}">${statusTextValue}</span></td>
           <td><button class="delete-btn" data-id="${contract.id}">מחק</button></td>
         `;
@@ -196,7 +208,13 @@
 
     async function loadContracts() {
       const search = searchInput.value.trim();
-      const params = new URLSearchParams({ tenant_id: String(user.tenant_id) });
+      const tenantId = resolveTenantId();
+      if (!tenantId) {
+        setStatus('שגיאת משתמש: tenant_id חסר. התחבר מחדש.', 'danger');
+        return;
+      }
+
+      const params = new URLSearchParams({ tenant_id: String(tenantId) });
       if (search) params.set('search', search);
 
       setStatus('טוען חוזים...');
@@ -221,7 +239,13 @@
 
       setStatus('מוחק חוזה...');
       try {
-        const response = await fetch(`/api/contracts/${contractId}?tenant_id=${user.tenant_id}`, {
+        const tenantId = resolveTenantId();
+        if (!tenantId) {
+          setStatus('שגיאת משתמש: tenant_id חסר. התחבר מחדש.', 'danger');
+          return;
+        }
+
+        const response = await fetch(`/api/contracts/${contractId}?tenant_id=${tenantId}`, {
           method: 'DELETE'
         });
         if (!response.ok) {
