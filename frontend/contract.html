@@ -155,7 +155,7 @@
     function resolveTenantId() {
       const tenantId = user?.tenant_id ?? user?.tenantId ?? null;
       const parsed = Number(tenantId);
-      return Number.isFinite(parsed) ? parsed : null;
+      return (Number.isFinite(parsed) && parsed > 0) ? parsed : null;
     }
 
     form.addEventListener('submit', async (event) => {
@@ -191,9 +191,9 @@
       formData.append('alert_days', String(alertDaysValue));
 
       const telegramChatValue = Number(document.getElementById('telegramChatId').value);
-      if (!Number.isFinite(telegramChatValue)) {
+      if (!Number.isFinite(telegramChatValue) || telegramChatValue === 0) {
         statusEl.classList.add('danger');
-        statusEl.textContent = 'Telegram Chat ID אינו מספר תקין';
+        statusEl.textContent = 'יש להזין Telegram Chat ID תקין (לדוגמה: 123456789). לקבלת ה-ID שלח /chatid לבוט.';
         return;
       }
       formData.append('telegram_chat_id', String(telegramChatValue));
@@ -225,8 +225,19 @@
 
         if (!response.ok || !data?.success) {
           statusEl.classList.add('danger');
-          const detail = data?.detail || 'שמירת החוזה נכשלה';
-          statusEl.textContent = String(detail);
+          const detail = data?.detail;
+          let errorMsg;
+          if (!detail) {
+            errorMsg = 'שמירת החוזה נכשלה';
+          } else if (typeof detail === 'string') {
+            errorMsg = detail;
+          } else if (Array.isArray(detail)) {
+            errorMsg = detail.map(e => e.msg || JSON.stringify(e)).join(' | ');
+          } else {
+            errorMsg = JSON.stringify(detail);
+          }
+          console.error('[CMS] Contract save error:', response.status, data);
+          statusEl.textContent = errorMsg;
           return;
         }
 

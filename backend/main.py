@@ -7,7 +7,7 @@ from typing import Optional
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -104,7 +104,7 @@ async def create_contract(
     telegram_chat_id: int = Form(...),
     manager_group_chat_id: int | None = Form(None),
     alert_target: str = Form("direct"),
-    contract_file: Optional[UploadFile] = None,
+    contract_file: Optional[UploadFile] = File(None),
 ) -> dict[str, object]:
     if alert_target not in {"direct", "managers", "both"}:
         raise HTTPException(status_code=400, detail="alert_target must be one of: direct, managers, both")

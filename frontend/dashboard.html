@@ -170,7 +170,7 @@
     function resolveTenantId() {
       const tenantId = user?.tenant_id ?? user?.tenantId ?? null;
       const parsed = Number(tenantId);
-      return Number.isFinite(parsed) ? parsed : null;
+      return (Number.isFinite(parsed) && parsed > 0) ? parsed : null;
     }
 
     function setStatus(message, type = '') {
@@ -220,9 +220,16 @@
       setStatus('טוען חוזים...');
       try {
         const response = await fetch(`/api/contracts?${params.toString()}`);
-        const data = await response.json();
-        if (!response.ok || !data.success) {
-          setStatus('טעינת החוזים נכשלה', 'danger');
+        const rawText = await response.text();
+        let data = null;
+        try { data = rawText ? JSON.parse(rawText) : null; } catch (_) {}
+        console.log('[CMS] load contracts response:', response.status, data);
+        if (!response.ok || !data?.success) {
+          const detail = data?.detail;
+          let errMsg = 'טעינת החוזים נכשלה';
+          if (detail && typeof detail === 'string') errMsg = detail;
+          else if (Array.isArray(detail)) errMsg = detail.map(e => e.msg || JSON.stringify(e)).join(' | ');
+          setStatus(errMsg, 'danger');
           return;
         }
 
