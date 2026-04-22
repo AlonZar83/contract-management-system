@@ -181,8 +181,22 @@
       if (startDate) formData.append('start_date', startDate);
 
       formData.append('end_date', document.getElementById('endDate').value);
-      formData.append('alert_days', String(Number(document.getElementById('alertDays').value)));
-      formData.append('telegram_chat_id', String(Number(document.getElementById('telegramChatId').value)));
+
+      const alertDaysValue = Number(document.getElementById('alertDays').value);
+      if (!Number.isFinite(alertDaysValue)) {
+        statusEl.classList.add('danger');
+        statusEl.textContent = 'ימי התראה אינו מספר תקין';
+        return;
+      }
+      formData.append('alert_days', String(alertDaysValue));
+
+      const telegramChatValue = Number(document.getElementById('telegramChatId').value);
+      if (!Number.isFinite(telegramChatValue)) {
+        statusEl.classList.add('danger');
+        statusEl.textContent = 'Telegram Chat ID אינו מספר תקין';
+        return;
+      }
+      formData.append('telegram_chat_id', String(telegramChatValue));
 
       const managerGroupRaw = document.getElementById('managerGroupChatId').value;
       if (managerGroupRaw) {
@@ -201,11 +215,18 @@
           method: 'POST',
           body: formData
         });
-        const data = await response.json();
+        const rawText = await response.text();
+        let data = null;
+        try {
+          data = rawText ? JSON.parse(rawText) : null;
+        } catch (parseError) {
+          data = null;
+        }
 
-        if (!response.ok || !data.success) {
+        if (!response.ok || !data?.success) {
           statusEl.classList.add('danger');
-          statusEl.textContent = 'שמירת החוזה נכשלה';
+          const detail = data?.detail || 'שמירת החוזה נכשלה';
+          statusEl.textContent = String(detail);
           return;
         }
 
